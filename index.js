@@ -19,7 +19,7 @@ app.use(bodyParser.json());
 
 // Serve images from the  folder
 app.use('/img', express.static('assets/img'));
-
+ 
 
 // Home endpoint
 app.get('/', (req, res) => {
@@ -33,11 +33,14 @@ app.get('/api/campingspots', (req, res) => {
       cs.CampingSpotId, cs.Name, cs.Description, cs.MaxCapacity, 
       cs.PricePerNight, cs.AmenitiesId, cs.LocationId, 
       l.CityVillage, l.Coordinates, l.Country, 
-      cs.HostId
+      cs.HostId,
+      a.Amenities as AmenitiesName
     FROM 
       CampingSpot cs
     LEFT JOIN 
       Location l ON cs.LocationId = l.LocationId
+    LEFT JOIN
+      Amenities a ON cs.AmenitiesId = a.AmenitiesId
   `;
   db.getQuery(query)
     .then(spots => res.send(spots))
@@ -106,11 +109,32 @@ app.get('/api/users/:userId/campingspots', (req, res) => {
 
 
 // User Endpoints
-app.get('/api/users', (req, res) => {
-    const db = new Database();
-    db.getQuery('SELECT * FROM User')
-      .then((users) => res.send(users))
-      .catch((error) => res.status(500).send({ error: 'Failed to fetch users', details: error }));
+// Add this to your server.js/index.js
+app.get('/api/users/:userId', (req, res) => {
+  const db = new Database();
+  const query = `
+    SELECT 
+      UserId,
+      Email,
+      PhoneNumber,
+      UserTypeId,
+      CreatedAt
+    FROM User
+    WHERE UserId = ?
+  `;
+  
+  db.getQuery(query, [req.params.userId])
+    .then(users => {
+      if (users.length === 0) {
+        res.status(404).send({ error: 'User not found' });
+      } else {
+        res.send(users[0]);
+      }
+    })
+    .catch(error => {
+      console.error('Database error:', error);
+      res.status(500).send({ error: 'Failed to fetch user info', details: error });
+    });
 });
 
 app.post('/api/users', (req, res) => {
@@ -132,13 +156,52 @@ app.get('/api/reservations', (req, res) => {
 });
 
 app.post('/api/reservations', (req, res) => {
-    const { userId, campingSpotId, startingDate, endDate, totalPrice } = req.body;
-    const db = new Database();
-    const query = `INSERT INTO Reservation (UserId, CampingSpotId, StartingDate, EndDate, TotalPrice) 
-                   VALUES (?, ?, ?, ?, ?)`;
-    db.getQuery(query, [userId, campingSpotId, startingDate, endDate, totalPrice])
-      .then(() => res.status(201).send({ message: 'Reservation created successfully' }))
-      .catch((error) => res.status(500).send({ error: 'Failed to create reservation', details: error }));
+  const { 
+      UserId, 
+      CampingSpotId, 
+      StartingDate, 
+      EndDate, 
+      TotalPrice,
+      NumberOfGuests,
+      Message
+  } = req.body;
+
+  const db = new Database();
+  // Update the query to include the new fields
+  const query = `
+      INSERT INTO Reservation (
+          UserId, 
+          CampingSpotId, 
+          StartingDate, 
+
+          EndDate, 
+          TotalPrice,
+          NumberOfGuests,
+          Message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+
+  db.getQuery(query, [
+      UserId, 
+      CampingSpotId, 
+      StartingDate, 
+      EndDate, 
+      TotalPrice,
+      NumberOfGuests || null,
+      Message || null
+  ])
+  .then(() => {
+      res.status(201).send({ 
+          message: 'Reservation created successfully',
+          success: true
+      });
+  })
+  .catch((error) => {
+      console.error('Database error:', error);
+      res.status(500).send({ 
+          error: 'Failed to create reservation', 
+          details: error.message 
+      });
+  });
 });
 
 // Reviews Endpoints
@@ -196,6 +259,39 @@ app.get('/api/users/:userId/bookings', (req, res) => {
   db.getQuery(query, [req.params.userId])
     .then(bookings => res.send(bookings))
     .catch(error => res.status(500).send({ error: 'Failed to fetch bookings', details: error }));
+});
+
+// Add this to your server.js
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
+  const db = new Database();
+  const query = `
+    SELECT 
+      UserId,
+      Email,
+      Password,
+      UserTypeId
+    FROM User
+    WHERE Email = ? AND Password = ?
+  `;
+  
+  db.getQuery(query, [email, password])
+    .then(users => {
+      if (users.length === 0) {
+        res.status(401).send({ error: 'Invalid credentials' });
+      } else {
+        const user = users[0];
+        res.send({
+          userId: user.UserId,
+          email: user.Email,
+          userTypeId: user.UserTypeId
+        });
+      }
+    })
+    .catch(error => {
+      console.error('Database error:', error);
+      res.status(500).send({ error: 'Login failed', details: error });
+    });
 });
 
 
